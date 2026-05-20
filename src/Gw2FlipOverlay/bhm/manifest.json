@@ -1,0 +1,17 @@
+{
+  "name": "GW2 Flip Overlay",
+  "version": "0.1.5-unlocked-native",
+  "namespace": "bh.stanw.gw2flip",
+  "package": "Gw2FlipOverlay.dll",
+  "manifest_version": 1,
+  "description": "Simple Trading Post flip overlay for Blish HUD with live public commerce scans and a ranked candidate list.",
+  "dependencies": {
+    "bh.blishhud": ">=1.0.0"
+  },
+  "contributors": [
+    {
+      "name": "stanw"
+    }
+  ],
+  "api_permissions": {}
+}

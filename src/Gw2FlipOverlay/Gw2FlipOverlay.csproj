@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>Gw2FlipOverlay</AssemblyName>
+    <RootNamespace>Gw2FlipOverlay</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Platforms>AnyCPU</Platforms>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <BhmPackageName>$(AssemblyName).bhm</BhmPackageName>
+    <BhmStageDir>$(OutputPath)bhm\</BhmStageDir>
+    <BhmPackagePath>$(OutputPath)$(BhmPackageName)</BhmPackagePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BlishHUD" Version="1.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="manifest.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <BhmPackageInclude Include="$(TargetPath)" />
+    <BhmPackageInclude Include="$(TargetDir)$(AssemblyName).pdb" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+    <BhmPackageInclude Include="$(TargetDir)manifest.json" Condition="Exists('$(TargetDir)manifest.json')" />
+    <BhmPackageInclude Include="@(ReferenceCopyLocalPaths)" />
+  </ItemGroup>
+
+  <Target Name="PackageBhm" AfterTargets="Build">
+    <RemoveDir Directories="$(BhmStageDir)" Condition="Exists('$(BhmStageDir)')" />
+    <MakeDir Directories="$(BhmStageDir)" />
+
+    <Copy
+      SourceFiles="@(BhmPackageInclude)"
+      DestinationFiles="@(BhmPackageInclude->'$(BhmStageDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+
+    <Delete Files="$(BhmPackagePath)" Condition="Exists('$(BhmPackagePath)')" />
+    <ZipDirectory SourceDirectory="$(BhmStageDir)" DestinationFile="$(BhmPackagePath)" Overwrite="true" />
+  </Target>
+</Project>
