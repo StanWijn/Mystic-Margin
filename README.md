@@ -1,6 +1,8 @@
-# GW2 Flip Overlay
+# Mystic Margin
 
-Small Blish HUD module scaffold for showing the best Trading Post flip candidates in-game.
+Mystic Margin is an unofficial Guild Wars 2 Trading Post companion that helps players spot potential flips by comparing buy prices, sell prices, fees, net profit, ROI, and margins. It presents market data clearly so you can make faster, better-informed trading decisions.
+
+This repo ships Mystic Margin as a Blish HUD module for in-game overlay use.
 
 ## What is included
 
