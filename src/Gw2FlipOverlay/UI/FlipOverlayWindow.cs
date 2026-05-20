@@ -38,6 +38,7 @@ public sealed class FlipOverlayWindow : IDisposable {
     private readonly StandardButton _scannerTabButton;
     private readonly StandardButton _portfolioTabButton;
     private readonly StandardButton _snipeTabButton;
+    private readonly StandardButton _planTabButton;
     private readonly StandardButton _ordersTabButton;
     private readonly StandardButton _craftTabButton;
     private readonly StandardButton _inventoryTabButton;
@@ -119,6 +120,7 @@ public sealed class FlipOverlayWindow : IDisposable {
     public event Action ScannerTabRequested;
     public event Action PortfolioTabRequested;
     public event Action SnipeTabRequested;
+    public event Action PlanTabRequested;
     public event Action OrdersTabRequested;
     public event Action CraftTabRequested;
     public event Action InventoryTabRequested;
@@ -136,6 +138,7 @@ public sealed class FlipOverlayWindow : IDisposable {
     public event Action OpenSellCycleRequested;
     public event Action VolatilityCycleRequested;
     public event Action AutoFlipQuantityCycleRequested;
+    public event Action AutoFlipPlanRequested;
     public event Action<int> MinimumProfitAdjusted;
     public event Action<bool> PracticalOnlyToggled;
     public event Action<int> WatchlistToggleRequested;
@@ -149,7 +152,7 @@ public sealed class FlipOverlayWindow : IDisposable {
             Parent = GameService.Graphics.SpriteScreen,
             Location = new Point(110, 90),
             Size = new Point(1260, 700),
-            Title = $"TP Flip Scanner v{BuildVersion}",
+            Title = $"Mystic Margin v{BuildVersion}",
             Subtitle = "Trading Post desk",
             Emblem = AsyncTexture2D.FromAssetId(156022),
             CanResize = true,
@@ -207,7 +210,7 @@ public sealed class FlipOverlayWindow : IDisposable {
             Parent = _miniPanel,
             Location = new Point(12, 8),
             Size = new Point(220, 20),
-            Text = $"TP Flip Scanner v{BuildVersion}",
+            Text = $"Mystic Margin v{BuildVersion}",
             ShowShadow = true,
             TextColor = Color.White
         };
@@ -265,9 +268,17 @@ public sealed class FlipOverlayWindow : IDisposable {
         };
         _snipeTabButton.Click += (_, __) => SnipeTabRequested?.Invoke();
 
-        _ordersTabButton = new StandardButton() {
+        _planTabButton = new StandardButton() {
             Parent = _panel,
             Location = new Point(312, 12),
+            Size = new Point(74, 26),
+            Text = "Plan"
+        };
+        _planTabButton.Click += (_, __) => PlanTabRequested?.Invoke();
+
+        _ordersTabButton = new StandardButton() {
+            Parent = _panel,
+            Location = new Point(394, 12),
             Size = new Point(82, 26),
             Text = "Orders"
         };
@@ -407,7 +418,7 @@ public sealed class FlipOverlayWindow : IDisposable {
             Size = new Point(104, 28),
             Text = "Plan Top 10"
         };
-        _autoPlanButton.Click += async (_, __) => await CopyAutoFlipPlanAsync();
+        _autoPlanButton.Click += (_, __) => AutoFlipPlanRequested?.Invoke();
 
         _profitDownButton = new StandardButton() {
             Parent = _panel,
@@ -725,7 +736,9 @@ public sealed class FlipOverlayWindow : IDisposable {
                         ? "Portfolio Drilldown"
                         : (viewMode == OverlayViewMode.Snipe
                             ? "Snipe Inspect"
-                            : (IsMoneyActionView(viewMode) ? "Action Inspect" : "Inspect")))));
+                            : (viewMode == OverlayViewMode.AutoPlan
+                                ? "Plan Inspect"
+                            : (IsMoneyActionView(viewMode) ? "Action Inspect" : "Inspect"))))));
         ApplyChromeForView(viewMode);
         UpdateHeadersForView(queryOptions.OpportunityMode, viewMode);
     }
@@ -2165,7 +2178,8 @@ public sealed class FlipOverlayWindow : IDisposable {
         _scannerTabButton.Location = new Point(16, 12);
         _portfolioTabButton.Location = new Point(_scannerTabButton.Right + 8, 12);
         _snipeTabButton.Location = new Point(_portfolioTabButton.Right + 8, 12);
-        _ordersTabButton.Location = new Point(_snipeTabButton.Right + 8, 12);
+        _planTabButton.Location = new Point(_snipeTabButton.Right + 8, 12);
+        _ordersTabButton.Location = new Point(_planTabButton.Right + 8, 12);
         _craftTabButton.Location = new Point(_ordersTabButton.Right + 8, 12);
         _inventoryTabButton.Location = new Point(_craftTabButton.Right + 8, 12);
         _subtitleLabel.Location = new Point(_inventoryTabButton.Right + 14, 12);
@@ -2257,6 +2271,7 @@ public sealed class FlipOverlayWindow : IDisposable {
         _scannerTabButton.Visible = isVisible;
         _portfolioTabButton.Visible = isVisible;
         _snipeTabButton.Visible = isVisible;
+        _planTabButton.Visible = isVisible;
         _ordersTabButton.Visible = isVisible;
         _craftTabButton.Visible = isVisible;
         _inventoryTabButton.Visible = isVisible;
@@ -2420,7 +2435,7 @@ public sealed class FlipOverlayWindow : IDisposable {
         var totalCapital = planRows.Sum(row => row.CapitalCopper);
         var totalProfit = planRows.Sum(row => row.EstimatedProfitCopper);
         var builder = new StringBuilder();
-        builder.AppendLine("GW2 Flip Overlay - Manual Auto Flip Plan");
+        builder.AppendLine("Mystic Margin - Manual Auto Flip Plan");
         builder.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         builder.AppendLine($"Quantity per item: {quantity:N0}");
         builder.AppendLine("Note: GW2 API and Blish HUD cannot place Trading Post orders for you. Use this as a manual buy-order checklist.");
@@ -2545,9 +2560,11 @@ public sealed class FlipOverlayWindow : IDisposable {
     private void ApplyChromeForView(OverlayViewMode viewMode) {
         var isPortfolio = viewMode == OverlayViewMode.Portfolio;
         var isSnipe = viewMode == OverlayViewMode.Snipe;
+        var isPlan = viewMode == OverlayViewMode.AutoPlan;
         _scannerTabButton.Enabled = isPortfolio || isSnipe || IsMoneyActionView(viewMode);
         _portfolioTabButton.Enabled = !isPortfolio;
         _snipeTabButton.Enabled = !isSnipe;
+        _planTabButton.Enabled = !isPlan;
         _ordersTabButton.Enabled = viewMode != OverlayViewMode.Orders;
         _craftTabButton.Enabled = viewMode != OverlayViewMode.CraftBoard;
         _inventoryTabButton.Enabled = viewMode != OverlayViewMode.Inventory;
@@ -2593,7 +2610,9 @@ public sealed class FlipOverlayWindow : IDisposable {
             ? "Track your trading worth, open capital, and market exposure over time"
             : (isSnipe
                 ? "Standalone snipe board for urgent under-fair-value Trading Post deals"
-                : "Trading Post desk for flips, craft margins, value dips, and account-aware exits");
+                : (isPlan
+                    ? "Manual buy-order plan for staged top-10 flip entries"
+                    : "Trading Post desk for flips, craft margins, value dips, and account-aware exits"));
     }
 
     private void UpdateHeadersForView(OpportunityMode opportunityMode, OverlayViewMode viewMode) {
@@ -2636,6 +2655,20 @@ public sealed class FlipOverlayWindow : IDisposable {
             _pressHeaderLabel.Text = "Depth";
             _turnHeaderLabel.Text = "Turn";
             _scoreHeaderLabel.Text = "Edge";
+            return;
+        }
+
+        if (viewMode == OverlayViewMode.AutoPlan) {
+            _rankHeaderLabel.Text = "#";
+            _itemHeaderLabel.Text = "Planned item";
+            _costHeaderLabel.Text = "Action";
+            _sellHeaderLabel.Text = "Qty";
+            _profitHeaderLabel.Text = "Capital";
+            _roiHeaderLabel.Text = "Bid";
+            _depthHeaderLabel.Text = "Profit";
+            _pressHeaderLabel.Text = "Conf";
+            _turnHeaderLabel.Text = "Read";
+            _scoreHeaderLabel.Text = string.Empty;
             return;
         }
 
@@ -2717,6 +2750,8 @@ public sealed class FlipOverlayWindow : IDisposable {
                 return "Portfolio";
             case OverlayViewMode.Snipe:
                 return "Snipe";
+            case OverlayViewMode.AutoPlan:
+                return "Plan";
             case OverlayViewMode.Orders:
                 return "Orders";
             case OverlayViewMode.CraftBoard:
@@ -2740,6 +2775,10 @@ public sealed class FlipOverlayWindow : IDisposable {
 
         if (viewMode == OverlayViewMode.Snipe) {
             return $"Snipe board active | Preset {preset} | Urgent deals use fair value, ROI, liquidity, and exposure checks";
+        }
+
+        if (viewMode == OverlayViewMode.AutoPlan) {
+            return $"Plan board active | Top-10 staged buy orders | Quantity x{queryOptions.AutoFlipQuantity:N0} | Manual Trading Post workflow";
         }
 
         if (IsMoneyActionView(viewMode)) {
@@ -3077,7 +3116,8 @@ public sealed class FlipOverlayWindow : IDisposable {
     private static bool IsMoneyActionView(OverlayViewMode viewMode) {
         return viewMode == OverlayViewMode.Orders ||
                viewMode == OverlayViewMode.CraftBoard ||
-               viewMode == OverlayViewMode.Inventory;
+               viewMode == OverlayViewMode.Inventory ||
+               viewMode == OverlayViewMode.AutoPlan;
     }
 
     private static string BuildMoneyActionLabel(MoneyActionRow row, bool isWatched) {
@@ -3133,6 +3173,7 @@ public sealed class FlipOverlayWindow : IDisposable {
 
     private static string GetMoneyActionEmptyText(OverlayViewMode viewMode) {
         return viewMode switch {
+            OverlayViewMode.AutoPlan => "No auto flip plan yet. Open a market, watchlist, or snipe board, then press Plan Top 10.",
             OverlayViewMode.Orders => "No order actions yet. Add an API key with tradingpost scope and run a scan to find undercut sells and stale buy orders.",
             OverlayViewMode.CraftBoard => "No short-cycle craft actions yet. Run Craft or Cooldown scans to populate profitable craft actions.",
             OverlayViewMode.Inventory => "No inventory exit actions yet. Add inventory scopes and run scans to classify sell, hold, and craft-from-stock options.",

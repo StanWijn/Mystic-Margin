@@ -9,5 +9,6 @@ public enum OverlayViewMode {
     Snipe = 5,
     Orders = 6,
     CraftBoard = 7,
-    Inventory = 8
+    Inventory = 8,
+    AutoPlan = 9
 }

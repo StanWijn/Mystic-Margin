@@ -4,6 +4,45 @@ Mystic Margin is an unofficial Guild Wars 2 Trading Post companion that helps pl
 
 This repo ships Mystic Margin as a Blish HUD module for in-game overlay use.
 
+## Install for Blish HUD
+
+Mystic Margin is installed as a `.bhm` Blish HUD module.
+
+1. Install and launch [Blish HUD](https://blishhud.com/).
+2. Download the latest `Gw2FlipOverlay.bhm` from this repository's GitHub releases.
+3. Copy `Gw2FlipOverlay.bhm` into your local Blish HUD modules folder:
+
+   `%USERPROFILE%\Documents\Guild Wars 2\addons\blishhud\modules`
+
+   If the `modules` folder does not exist yet, create it.
+
+4. Restart Blish HUD.
+5. Open Blish HUD settings, go to `Modules`, and enable `Mystic Margin`.
+6. In game, click the Mystic Margin corner icon to open the Trading Post overlay.
+
+## Optional API Key
+
+Mystic Margin works without a GW2 API key for public market scans. Adding an API key enables account-aware views such as wallet-aware filtering, holdings, open orders, transaction history, portfolio, ledger, and inventory exit guidance.
+
+To add one:
+
+1. Go to the official Guild Wars 2 API key page:
+
+   `https://account.arena.net/applications`
+
+2. Create a key with these permissions:
+   - `wallet`
+   - `inventories`
+   - `characters`
+   - `tradingpost`
+
+3. Copy the generated key.
+4. In Blish HUD, open `Settings` > `Modules` > `Mystic Margin`.
+5. Paste the key into `GW2 API key`.
+6. Run a `Quick` or `Full` scan in the overlay.
+
+Your API key is stored by Blish HUD in its local settings. Do not share your key publicly.
+
 ## What is included
 
 - A Blish HUD module project targeting `.NET Framework 4.7.2`
@@ -34,6 +73,8 @@ This repo ships Mystic Margin as a Blish HUD module for in-game overlay use.
   - minimum depth
   - minimum profit threshold
   - practical-item filtering
+- Account-aware boards for portfolio, ledger, open orders, inventory exits, and craft actions when a GW2 API key is configured
+- A manual `Plan Top 10` workflow that stages the best current candidates into a visible buy-order plan
 - A larger local candidate universe cache so filter/sort changes feel instant after a scan finishes
 - A local compressed price-history database that stores every public market scan over time
 - A cached last-scan universe so the overlay can show prior results immediately on startup
@@ -55,8 +96,8 @@ This repo ships Mystic Margin as a Blish HUD module for in-game overlay use.
 ## Notes
 
 - The live scan is intentionally read-only and does not automate any in-game actions.
-- The current MVP uses public market data only. It does not yet wire in `/v2/commerce/transactions`.
-- Auto-refresh only runs while the overlay window is visible to keep API traffic and module work modest.
+- Account-aware features use authenticated read-only API endpoints such as `/v2/account/*` and `/v2/commerce/transactions/*`.
+- The `Plan Top 10` feature does not place Trading Post orders. It creates a manual checklist with target bids, planned capital, and estimated profit.
 - Sort/filter controls now run against the last downloaded candidate universe locally, so changing rows, caps, profit, or depth should feel much faster than a full re-scan.
 - Price history is stored under:
 
@@ -83,7 +124,7 @@ This repo ships Mystic Margin as a Blish HUD module for in-game overlay use.
   - `Daily Cooldowns`: limited-throughput daily craft conversions with high margins
   - `Seasonal Watch`: discounted festival/rotation items only, not broad speculation
 
-## Build
+## Build from Source
 
 1. Install Visual Studio 2022 Community or Build Tools with:
    - `.NET desktop development`
@@ -107,6 +148,6 @@ This repo ships Mystic Margin as a Blish HUD module for in-game overlay use.
 ## Good next steps
 
 1. Add item icons from `/v2/items`.
-2. Add authenticated `/v2/commerce/transactions` history.
-3. Add watchlists and favorites.
-4. Persist pinned items and sorting preferences.
+2. Add packaged release notes and screenshots.
+3. Persist pinned items and more per-user layout preferences.
+4. Add export/import for presets and watchlists.

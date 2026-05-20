@@ -2,4 +2,8 @@ bin/
 obj/
 .vs/
 packages/
-
+*.user
+*.suo
+*.pdb
+src/Gw2FlipOverlay/Gw2FlipOverlay.bhm
+src/Gw2FlipOverlay/bhm/

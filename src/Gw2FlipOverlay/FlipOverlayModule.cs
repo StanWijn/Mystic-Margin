@@ -64,6 +64,8 @@ public sealed class FlipOverlayModule : Module {
     private AdvisorBriefing _previousAdvisorBriefing;
     private PortfolioSnapshot _portfolioSnapshot = new PortfolioSnapshot();
     private IReadOnlyList<PortfolioSnapshot> _portfolioHistory = Array.Empty<PortfolioSnapshot>();
+    private IReadOnlyList<MoneyActionRow> _autoFlipPlanRows = Array.Empty<MoneyActionRow>();
+    private DateTime _autoFlipPlanGeneratedAt = DateTime.Now;
 
     [ImportingConstructor]
     public FlipOverlayModule([Import("ModuleParameters")] ModuleParameters moduleParameters) : base(moduleParameters) {
@@ -75,7 +77,7 @@ public sealed class FlipOverlayModule : Module {
 
     protected override void Initialize() {
         _cornerIcon = new CornerIcon() {
-            IconName = "TP Flip Overlay",
+            IconName = "Mystic Margin",
             Icon = AsyncTexture2D.FromAssetId(156022),
             Priority = "Trading Post".GetHashCode()
         };
@@ -86,6 +88,7 @@ public sealed class FlipOverlayModule : Module {
         _overlayWindow.ScannerTabRequested += async () => await ShowScannerTabAsync();
         _overlayWindow.PortfolioTabRequested += async () => await ShowPortfolioTabAsync();
         _overlayWindow.SnipeTabRequested += async () => await ShowSnipeTabAsync();
+        _overlayWindow.PlanTabRequested += async () => await ShowAutoPlanTabAsync(false);
         _overlayWindow.OrdersTabRequested += async () => await ShowOrdersTabAsync();
         _overlayWindow.CraftTabRequested += async () => await ShowCraftTabAsync();
         _overlayWindow.InventoryTabRequested += async () => await ShowInventoryTabAsync();
@@ -100,6 +103,7 @@ public sealed class FlipOverlayModule : Module {
         _overlayWindow.OpenSellCycleRequested += async () => await CycleOpenSellCapAsync();
         _overlayWindow.VolatilityCycleRequested += async () => await CycleVolatilityCapAsync();
         _overlayWindow.AutoFlipQuantityCycleRequested += async () => await CycleAutoFlipQuantityAsync();
+        _overlayWindow.AutoFlipPlanRequested += async () => await ShowAutoPlanTabAsync(true);
         _overlayWindow.PresetCycleRequested += async () => await CyclePresetAsync();
         _overlayWindow.SavePresetRequested += async () => await SavePresetAsync();
         _overlayWindow.ViewCycleRequested += async () => await CycleViewModeAsync();
@@ -361,6 +365,7 @@ public sealed class FlipOverlayModule : Module {
         };
 
         _settings.AutoFlipQuantity.Value = next;
+        _autoFlipPlanRows = Array.Empty<MoneyActionRow>();
         _overlayWindow.SetQueryState(BuildQueryOptions(), _viewMode, GetActivePresetOrDefault()?.Name ?? "Preset");
         _overlayWindow.SetStatus($"Auto flip plan quantity set to {next:N0} per item.");
         await Task.CompletedTask;
@@ -406,7 +411,8 @@ public sealed class FlipOverlayModule : Module {
             OverlayViewMode.Watchlist => OverlayViewMode.Ledger,
             OverlayViewMode.Ledger => OverlayViewMode.Advisor,
             OverlayViewMode.Advisor => OverlayViewMode.Snipe,
-            OverlayViewMode.Snipe => OverlayViewMode.Orders,
+            OverlayViewMode.Snipe => OverlayViewMode.AutoPlan,
+            OverlayViewMode.AutoPlan => OverlayViewMode.Orders,
             OverlayViewMode.Orders => OverlayViewMode.CraftBoard,
             OverlayViewMode.CraftBoard => OverlayViewMode.Inventory,
             OverlayViewMode.Inventory => OverlayViewMode.Market,
@@ -441,6 +447,21 @@ public sealed class FlipOverlayModule : Module {
         }
 
         _viewMode = OverlayViewMode.Snipe;
+        _overlayWindow.SetQueryState(BuildQueryOptions(), _viewMode, GetActivePresetOrDefault()?.Name ?? "Preset");
+        await ApplyCurrentViewIfAvailableOrPromptAsync();
+    }
+
+    private async Task ShowAutoPlanTabAsync(bool rebuildPlan) {
+        if (_viewMode != OverlayViewMode.Portfolio && _viewMode != OverlayViewMode.Snipe && !IsMoneyActionView(_viewMode)) {
+            _lastScannerViewMode = _viewMode;
+        }
+
+        if (rebuildPlan || _autoFlipPlanRows.Count == 0) {
+            _autoFlipPlanRows = BuildAutoFlipPlanRows().ToList();
+            _autoFlipPlanGeneratedAt = DateTime.Now;
+        }
+
+        _viewMode = OverlayViewMode.AutoPlan;
         _overlayWindow.SetQueryState(BuildQueryOptions(), _viewMode, GetActivePresetOrDefault()?.Name ?? "Preset");
         await ApplyCurrentViewIfAvailableOrPromptAsync();
     }
@@ -1143,6 +1164,8 @@ public sealed class FlipOverlayModule : Module {
 
     private IEnumerable<MoneyActionRow> BuildMoneyActionRows(OverlayViewMode viewMode) {
         switch (viewMode) {
+            case OverlayViewMode.AutoPlan:
+                return _autoFlipPlanRows;
             case OverlayViewMode.Orders:
                 return BuildOrderActionRows();
             case OverlayViewMode.CraftBoard:
@@ -1152,6 +1175,76 @@ public sealed class FlipOverlayModule : Module {
             default:
                 return Array.Empty<MoneyActionRow>();
         }
+    }
+
+    private IEnumerable<MoneyActionRow> BuildAutoFlipPlanRows() {
+        var viewOptions = BuildQueryOptions();
+        var quantity = Math.Max(1, viewOptions.AutoFlipQuantity);
+        IEnumerable<FlipCandidate> candidates;
+
+        if (_viewMode == OverlayViewMode.Snipe) {
+            candidates = BuildSnipeCandidates(viewOptions);
+        } else if (TryGetCurrentUniverse(out var currentUniverse)) {
+            var filteredCandidates = currentUniverse.Candidates
+                .Where(candidate => PassesViewFilters(candidate, viewOptions, _watchlistItemIds, _viewMode));
+            candidates = _viewMode == OverlayViewMode.Watchlist
+                ? filteredCandidates.OrderByDescending(candidate => candidate.AlertScore).ThenByDescending(candidate => Math.Abs(candidate.SellDeltaCopper))
+                : ApplySort(filteredCandidates, viewOptions.SortMode);
+        } else {
+            candidates = _scanResultsByMode.Values
+                .OrderByDescending(result => result.GeneratedAtUtc)
+                .SelectMany(result => result.Candidates ?? Array.Empty<FlipCandidate>())
+                .Where(candidate => PassesViewFilters(candidate, viewOptions, _watchlistItemIds, OverlayViewMode.Market));
+            candidates = ApplySort(candidates, viewOptions.SortMode);
+        }
+
+        return candidates
+            .Where(candidate => candidate != null)
+            .Take(10)
+            .Select(candidate => BuildAutoFlipPlanRow(candidate, quantity))
+            .Where(row => row != null)
+            .ToList();
+    }
+
+    private static MoneyActionRow BuildAutoFlipPlanRow(FlipCandidate candidate, int quantity) {
+        var currentBid = candidate.HighestBuy > 0
+            ? candidate.HighestBuy
+            : candidate.AcquisitionCostCopper;
+
+        if (currentBid <= 0 || candidate.NetResaleValue <= 0) {
+            return null;
+        }
+
+        var targetBid = currentBid + 1;
+        var bidRead = "top bid + 1c";
+
+        if (candidate.LowestSell > 0 && targetBid >= candidate.LowestSell) {
+            targetBid = currentBid;
+            bidRead = "do not cross sell floor";
+        }
+
+        var unitProfit = candidate.NetResaleValue - targetBid;
+
+        if (unitProfit <= 0) {
+            return null;
+        }
+
+        var capital = (long)targetBid * quantity;
+        var estimatedProfit = (long)unitProfit * quantity;
+        var roi = targetBid <= 0 ? 0m : unitProfit / (decimal)targetBid * 100m;
+
+        return new MoneyActionRow() {
+            ItemId = candidate.ItemId,
+            ItemName = candidate.ItemName,
+            Lane = "Auto flip plan",
+            Action = "Bid",
+            Quantity = quantity,
+            CapitalCopper = ClampCopper(capital),
+            TargetCopper = targetBid,
+            EdgeCopper = ClampCopper(estimatedProfit),
+            ConfidenceScore = candidate.ConfidenceScore,
+            Notes = $"{bidRead}; net sell {FormatCoin(candidate.NetResaleValue)}, ROI {roi:N1}%, depth {candidate.MarketDepth:N0}"
+        };
     }
 
     private IEnumerable<MoneyActionRow> BuildOrderActionRows() {
@@ -1338,13 +1431,20 @@ public sealed class FlipOverlayModule : Module {
     private string BuildMoneyActionStatusMessage(OverlayViewMode viewMode, IReadOnlyList<MoneyActionRow> rows) {
         var totalEdge = rows?.Sum(row => row.EdgeCopper) ?? 0;
         var totalCapital = rows?.Sum(row => Math.Max(0, row.CapitalCopper)) ?? 0;
+        if (viewMode == OverlayViewMode.AutoPlan) {
+            return rows == null || rows.Count == 0
+                ? "Plan is empty. Open a market, watchlist, or snipe board with scan results, then press Plan Top 10."
+                : $"Plan holds {rows.Count} staged buy orders from {_autoFlipPlanGeneratedAt:HH:mm:ss} | Capital {FormatCoin(totalCapital)} | Est profit {FormatCoin(totalEdge)} | Wallet {FormatCoin(_accountSnapshot.AvailableCopper)}.";
+        }
+
         return $"{GetViewModeLabel(viewMode)} shows {rows?.Count ?? 0} short-cycle actions | Edge {FormatCoin(totalEdge)} | Capital/value {FormatCoin(totalCapital)} | Wallet {FormatCoin(_accountSnapshot.AvailableCopper)}.";
     }
 
     private static bool IsMoneyActionView(OverlayViewMode viewMode) {
         return viewMode == OverlayViewMode.Orders ||
                viewMode == OverlayViewMode.CraftBoard ||
-               viewMode == OverlayViewMode.Inventory;
+               viewMode == OverlayViewMode.Inventory ||
+               viewMode == OverlayViewMode.AutoPlan;
     }
 
     private static string BuildCachedStatusMessage(MarketScanResult scanResult) {
@@ -1386,6 +1486,7 @@ public sealed class FlipOverlayModule : Module {
             OverlayViewMode.Orders => "Orders",
             OverlayViewMode.CraftBoard => "Craft",
             OverlayViewMode.Inventory => "Inventory",
+            OverlayViewMode.AutoPlan => "Plan",
             OverlayViewMode.Snipe => "Snipe",
             OverlayViewMode.Portfolio => "Portfolio",
             OverlayViewMode.Advisor => "Advisor",
@@ -1402,5 +1503,17 @@ public sealed class FlipOverlayModule : Module {
         var bronze = absValue % 100;
         var prefix = copper < 0 ? "-" : string.Empty;
         return $"{prefix}{gold}g {silver:D2}s {bronze:D2}c";
+    }
+
+    private static int ClampCopper(long copper) {
+        if (copper > int.MaxValue) {
+            return int.MaxValue;
+        }
+
+        if (copper < int.MinValue) {
+            return int.MinValue;
+        }
+
+        return (int)copper;
     }
 }
