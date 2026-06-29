@@ -99,6 +99,8 @@ public sealed class FlipCandidate {
 
     public int ExpectedGoldPerDayCopper { get; set; }
 
+    public int BaseExpectedGoldPerDayCopper { get; set; }
+
     public decimal ExitQualityScore { get; set; }
 
     public decimal CapitalEfficiencyScore { get; set; }
@@ -106,6 +108,8 @@ public sealed class FlipCandidate {
     public decimal ExposurePenaltyScore { get; set; } = 1m;
 
     public decimal AdvisorScore { get; set; }
+
+    public decimal BaseAdvisorScore { get; set; }
 
     public string AdvisorWhyNow { get; set; } = string.Empty;
 

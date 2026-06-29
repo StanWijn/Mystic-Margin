@@ -18,6 +18,12 @@ public sealed class CandidateInsightService {
         var watchlist = new HashSet<int>(watchlistIds ?? Array.Empty<int>());
 
         foreach (var candidate in scanResult.Candidates) {
+            if (candidate == null) {
+                continue;
+            }
+
+            ResetAccountDerivedFields(candidate);
+            RestoreBaseAdvisorMetrics(candidate);
             candidate.AvailableCapitalCopper = snapshot.AvailableCopper;
             candidate.OwnedQuantity = snapshot.OwnedCounts.TryGetValue(candidate.ItemId, out var ownedQuantity) ? ownedQuantity : 0;
 
@@ -52,6 +58,39 @@ public sealed class CandidateInsightService {
             ApplyCraftCoverage(candidate, snapshot);
             ApplyAdvisorNarrative(candidate, previousCandidates.TryGetValue(candidate.ItemId, out previousCandidate) ? previousCandidate : null);
             ApplyExposure(candidate, snapshot, queryOptions);
+        }
+    }
+
+    private static void ResetAccountDerivedFields(FlipCandidate candidate) {
+        candidate.AvailableCapitalCopper = 0;
+        candidate.OwnedQuantity = 0;
+        candidate.CurrentBuyOrderQuantity = 0;
+        candidate.CurrentSellOrderQuantity = 0;
+        candidate.CraftFromOwnedCount = 0;
+        candidate.MissingCraftCostCopper = 0;
+
+        foreach (var ingredient in candidate.CraftIngredients ?? new List<CraftIngredientNeed>()) {
+            ingredient.OwnedCount = 0;
+            ingredient.MissingCount = 0;
+            ingredient.MissingCostCopper = 0;
+        }
+    }
+
+    private static void RestoreBaseAdvisorMetrics(FlipCandidate candidate) {
+        if (candidate.BaseExpectedGoldPerDayCopper <= 0 && candidate.ExpectedGoldPerDayCopper > 0) {
+            candidate.BaseExpectedGoldPerDayCopper = candidate.ExpectedGoldPerDayCopper;
+        }
+
+        if (candidate.BaseAdvisorScore <= 0m && candidate.AdvisorScore > 0m) {
+            candidate.BaseAdvisorScore = candidate.AdvisorScore;
+        }
+
+        if (candidate.BaseExpectedGoldPerDayCopper > 0) {
+            candidate.ExpectedGoldPerDayCopper = candidate.BaseExpectedGoldPerDayCopper;
+        }
+
+        if (candidate.BaseAdvisorScore > 0m) {
+            candidate.AdvisorScore = candidate.BaseAdvisorScore;
         }
     }
 
@@ -243,9 +282,16 @@ public sealed class CandidateInsightService {
             penalty *= 0.78m;
         }
 
+        var baseExpectedGoldPerDay = candidate.BaseExpectedGoldPerDayCopper > 0
+            ? candidate.BaseExpectedGoldPerDayCopper
+            : candidate.ExpectedGoldPerDayCopper;
+        var baseAdvisorScore = candidate.BaseAdvisorScore > 0m
+            ? candidate.BaseAdvisorScore
+            : candidate.AdvisorScore;
+
         candidate.ExposurePenaltyScore = Math.Round(Math.Max(0.15m, penalty), 2);
-        candidate.ExpectedGoldPerDayCopper = (int)Math.Round(candidate.ExpectedGoldPerDayCopper * candidate.ExposurePenaltyScore);
-        candidate.AdvisorScore = Math.Round(candidate.AdvisorScore * candidate.ExposurePenaltyScore, 2);
+        candidate.ExpectedGoldPerDayCopper = (int)Math.Round(baseExpectedGoldPerDay * candidate.ExposurePenaltyScore);
+        candidate.AdvisorScore = Math.Round(baseAdvisorScore * candidate.ExposurePenaltyScore, 2);
     }
 
     private static string FormatSignedCoin(int copper) {

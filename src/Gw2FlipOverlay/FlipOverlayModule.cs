@@ -30,6 +30,8 @@ public sealed class FlipOverlayModule : Module {
         "Container"
     };
 
+    private const int StaleBuyOrderDays = 3;
+
     private readonly ModuleSettings _settings = new ModuleSettings();
     private readonly FlipScoringService _scoringService = new FlipScoringService();
     private readonly PriceHistoryStore _historyStore = new PriceHistoryStore();
@@ -66,6 +68,7 @@ public sealed class FlipOverlayModule : Module {
     private IReadOnlyList<PortfolioSnapshot> _portfolioHistory = Array.Empty<PortfolioSnapshot>();
     private IReadOnlyList<MoneyActionRow> _autoFlipPlanRows = Array.Empty<MoneyActionRow>();
     private DateTime _autoFlipPlanGeneratedAt = DateTime.Now;
+    private DateTime _nextAutoRefreshUtc = DateTime.MinValue;
 
     [ImportingConstructor]
     public FlipOverlayModule([Import("ModuleParameters")] ModuleParameters moduleParameters) : base(moduleParameters) {
@@ -113,7 +116,7 @@ public sealed class FlipOverlayModule : Module {
         _overlayWindow.SetWatchlist(_watchlistItemIds);
         _overlayWindow.SetQueryState(BuildQueryOptions(), _viewMode, GetActivePresetOrDefault()?.Name ?? "Preset");
         _overlayWindow.UpdatePortfolioSummary(_portfolioSnapshot);
-        _overlayWindow.SetStatus("No automatic scans. Press Quick or Full when you want to update prices.");
+        _overlayWindow.SetStatus(BuildAutoRefreshStatusMessage());
 
         _cornerIcon.Click += async delegate {
             _overlayWindow.Toggle();
@@ -188,6 +191,7 @@ public sealed class FlipOverlayModule : Module {
             GameService.GameIntegration.Gw2Instance.Gw2HasFocus,
             _settings.HideWhenGw2Unfocused.Value);
         _overlayWindow?.UpdateInteraction();
+        UpdateAutoRefresh();
     }
 
     protected override void Unload() {
@@ -426,16 +430,7 @@ public sealed class FlipOverlayModule : Module {
     }
 
     private async Task ShowScannerTabAsync() {
-        if (_viewMode == OverlayViewMode.Portfolio || _viewMode == OverlayViewMode.Snipe || IsMoneyActionView(_viewMode)) {
-            _viewMode = _lastScannerViewMode == OverlayViewMode.Portfolio || _lastScannerViewMode == OverlayViewMode.Snipe || IsMoneyActionView(_lastScannerViewMode)
-                ? OverlayViewMode.Market
-                : _lastScannerViewMode;
-        }
-
-        if (_viewMode == OverlayViewMode.Portfolio || _viewMode == OverlayViewMode.Snipe || IsMoneyActionView(_viewMode)) {
-            _viewMode = OverlayViewMode.Market;
-        }
-
+        _viewMode = OverlayViewMode.Market;
         _lastScannerViewMode = _viewMode;
         _overlayWindow.SetQueryState(BuildQueryOptions(), _viewMode, GetActivePresetOrDefault()?.Name ?? "Preset");
         await ApplyCurrentViewIfAvailableOrPromptAsync();
@@ -833,7 +828,7 @@ public sealed class FlipOverlayModule : Module {
         _overlayWindow.SetBusy(true);
         _overlayWindow.SetStatus(scanMode == ScanExecutionMode.Full
             ? $"Starting full scan for {GetModeLabel(requestedMode)}..."
-            : $"Starting quick scan for {GetModeLabel(requestedMode)}...");
+            : $"Rebuilding cached scan for {GetModeLabel(requestedMode)}...");
 
         try {
             var provider = _settings.UseMockData.Value ? _mockProvider : _liveProvider;
@@ -894,6 +889,7 @@ public sealed class FlipOverlayModule : Module {
         } finally {
             _overlayWindow.SetBusy(false);
             _isRefreshing = false;
+            ScheduleNextAutoRefresh();
         }
     }
 
@@ -902,7 +898,7 @@ public sealed class FlipOverlayModule : Module {
             await TryShowCachedResultsForCurrentModeAsync();
         } catch (Exception ex) {
             Logger.Warn(ex, "Failed to load cached scan results.");
-            _overlayWindow.SetStatus("No cached scan available. Press Quick or Full Scan.");
+            _overlayWindow.SetStatus("No cached scan available. Press Full Scan for fresh prices.");
         }
     }
 
@@ -918,7 +914,7 @@ public sealed class FlipOverlayModule : Module {
             var cachedResult = await _lastScanCacheStore.TryLoadAsync(currentMode, CancellationToken.None);
 
             if (cachedResult == null || cachedResult.Candidates.Count == 0) {
-                _overlayWindow.SetStatus("No cached results for this mode yet. Press Quick or Full Scan.");
+                _overlayWindow.SetStatus("No cached results for this mode yet. Press Full Scan for fresh prices.");
                 return;
             }
 
@@ -930,7 +926,7 @@ public sealed class FlipOverlayModule : Module {
             ApplyCurrentView(cachedResult, BuildCachedStatusMessage(cachedResult));
         } catch (Exception ex) {
             Logger.Warn(ex, $"Failed to load cached {currentMode} scan results.");
-            _overlayWindow.SetStatus("No cached results for this mode yet. Press Quick or Full Scan.");
+            _overlayWindow.SetStatus("No cached results for this mode yet. Press Full Scan for fresh prices.");
         }
     }
 
@@ -957,8 +953,43 @@ public sealed class FlipOverlayModule : Module {
     private async Task<AccountSnapshot> RefreshAccountSnapshotAsync(CancellationToken cancellationToken) {
         var provider = _settings.UseMockData.Value ? _mockAccountProvider : _liveAccountProvider;
         var snapshot = await provider.GetSnapshotAsync(_settings.ApiKey.Value, cancellationToken);
+
+        if (snapshot.HasApiKey && !snapshot.IsAuthenticated && _accountSnapshot?.IsAuthenticated == true) {
+            var failedStatus = snapshot.StatusMessage;
+            snapshot = _accountSnapshot;
+            snapshot.StatusMessage = $"{failedStatus} Showing last successful account sync from {snapshot.CapturedAtUtc.LocalDateTime:yyyy-MM-dd HH:mm:ss}.";
+            return snapshot;
+        }
+
         await _accountSnapshotStore.SaveAsync(snapshot, CancellationToken.None);
         return snapshot;
+    }
+
+    private void UpdateAutoRefresh() {
+        if (_overlayWindow == null || !_overlayWindow.IsVisible) {
+            _nextAutoRefreshUtc = DateTime.MinValue;
+            return;
+        }
+
+        if (_isRefreshing) {
+            return;
+        }
+
+        if (_nextAutoRefreshUtc == DateTime.MinValue) {
+            ScheduleNextAutoRefresh();
+            return;
+        }
+
+        if (DateTime.UtcNow < _nextAutoRefreshUtc) {
+            return;
+        }
+
+        ScheduleNextAutoRefresh();
+        _ = RunScanAsync(ScanExecutionMode.Full);
+    }
+
+    private void ScheduleNextAutoRefresh() {
+        _nextAutoRefreshUtc = DateTime.UtcNow.AddSeconds(Math.Max(30, _settings.RefreshIntervalSeconds.Value));
     }
 
     private void RebuildOtherScanInsights(OpportunityMode updatedMode) {
@@ -1085,12 +1116,16 @@ public sealed class FlipOverlayModule : Module {
     }
 
     private IEnumerable<FlipCandidate> BuildSnipeCandidates(FlipQueryOptions queryOptions) {
-        var seen = new HashSet<int>();
         var candidates = _scanResultsByMode.Values
             .SelectMany(result => result.Candidates ?? Array.Empty<FlipCandidate>())
             .Where(candidate => candidate != null)
-            .Where(candidate => seen.Add(candidate.ItemId))
             .Where(candidate => PassesSnipeFilters(candidate, queryOptions))
+            .GroupBy(candidate => candidate.ItemId)
+            .Select(group => group
+                .OrderByDescending(CalculateSnipeScore)
+                .ThenByDescending(candidate => candidate.ExpectedGoldPerDayCopper)
+                .ThenByDescending(candidate => candidate.EstimatedProfit)
+                .First())
             .OrderByDescending(CalculateSnipeScore)
             .ThenByDescending(candidate => candidate.ExpectedGoldPerDayCopper)
             .ThenByDescending(candidate => candidate.EstimatedProfit);
@@ -1283,12 +1318,16 @@ public sealed class FlipOverlayModule : Module {
                 var netResale = candidate?.NetResaleValue ?? 0;
                 var spreadAtOrder = netResale - order.CurrentBuyUnitPrice;
                 var outbid = topBuy > order.CurrentBuyUnitPrice;
+                var buyAgeDays = order.CurrentBuyOldestCreatedUtc.HasValue
+                    ? Math.Max(0, (DateTimeOffset.UtcNow - order.CurrentBuyOldestCreatedUtc.Value).TotalDays)
+                    : 0;
+                var stale = buyAgeDays >= StaleBuyOrderDays;
                 var collapsed = netResale > 0 && spreadAtOrder < Math.Max(250, _settings.MinimumProfitCopper.Value);
                 rows.Add(new MoneyActionRow() {
                     ItemId = pair.Key,
                     ItemName = itemName,
                     Lane = "Buy order",
-                    Action = collapsed ? "Cancel" : (outbid ? "Raise" : "Hold"),
+                    Action = collapsed || stale ? "Cancel" : (outbid ? "Raise" : "Hold"),
                     Quantity = order.CurrentBuyQuantity,
                     CapitalCopper = (int)Math.Min(int.MaxValue, order.CurrentBuyTotalCopper > 0 ? order.CurrentBuyTotalCopper : order.CurrentBuyQuantity * order.CurrentBuyUnitPrice),
                     TargetCopper = topBuy > 0 ? topBuy : order.CurrentBuyUnitPrice,
@@ -1296,7 +1335,9 @@ public sealed class FlipOverlayModule : Module {
                     ConfidenceScore = candidate?.ConfidenceScore ?? 35m,
                     Notes = collapsed
                         ? "Spread collapsed versus current sell floor; free this capital for better short-cycle flips."
-                        : (outbid ? "Your buy is no longer top bid; raise only if the post-fee spread still clears your target." : "Buy is competitive and still has a workable spread.")
+                        : stale
+                            ? $"Buy order is {buyAgeDays:N1} days old; cancel stale capital and rerun the daily plan."
+                            : (outbid ? "Your buy is no longer top bid; raise only if the post-fee spread still clears your target." : "Buy is competitive and still has a workable spread.")
                 });
             }
         }
@@ -1353,7 +1394,7 @@ public sealed class FlipOverlayModule : Module {
             rows.Add(new MoneyActionRow() {
                 ItemId = pair.Key,
                 ItemName = itemName,
-                Lane = "Inventory",
+                Lane = "Filled stock",
                 Action = action,
                 Quantity = pair.Value,
                 CapitalCopper = unitNet * pair.Value,
@@ -1425,7 +1466,11 @@ public sealed class FlipOverlayModule : Module {
         var walletText = _accountSnapshot == null || _accountSnapshot.AvailableCopper <= 0
             ? "wallet unavailable"
             : $"wallet {FormatCoin(_accountSnapshot.AvailableCopper)}";
-        return $"Snipe board found {snipeCount} urgent deals from {universeCount} cached candidates with {walletText}. Run Quick or Full after changing modes to refresh the hunt.";
+        return $"Snipe board found {snipeCount} urgent deals from {universeCount} cached candidates with {walletText}. Run Full for fresh prices after changing modes.";
+    }
+
+    private string BuildAutoRefreshStatusMessage() {
+        return $"Press Full for fresh prices, or Cached to reuse your last full scan. Auto-refresh runs every {Math.Max(30, _settings.RefreshIntervalSeconds.Value):N0}s while this overlay is open.";
     }
 
     private string BuildMoneyActionStatusMessage(OverlayViewMode viewMode, IReadOnlyList<MoneyActionRow> rows) {
@@ -1433,11 +1478,11 @@ public sealed class FlipOverlayModule : Module {
         var totalCapital = rows?.Sum(row => Math.Max(0, row.CapitalCopper)) ?? 0;
         if (viewMode == OverlayViewMode.AutoPlan) {
             return rows == null || rows.Count == 0
-                ? "Plan is empty. Open a market, watchlist, or snipe board with scan results, then press Plan Top 10."
+                ? "Buy plan is empty. Open Daily Scan, then press Plan Top 10."
                 : $"Plan holds {rows.Count} staged buy orders from {_autoFlipPlanGeneratedAt:HH:mm:ss} | Capital {FormatCoin(totalCapital)} | Est profit {FormatCoin(totalEdge)} | Wallet {FormatCoin(_accountSnapshot.AvailableCopper)}.";
         }
 
-        return $"{GetViewModeLabel(viewMode)} shows {rows?.Count ?? 0} short-cycle actions | Edge {FormatCoin(totalEdge)} | Capital/value {FormatCoin(totalCapital)} | Wallet {FormatCoin(_accountSnapshot.AvailableCopper)}.";
+        return $"{GetViewModeLabel(viewMode)} shows {rows?.Count ?? 0} daily actions | Edge {FormatCoin(totalEdge)} | Capital/value {FormatCoin(totalCapital)} | Wallet {FormatCoin(_accountSnapshot.AvailableCopper)}.";
     }
 
     private static bool IsMoneyActionView(OverlayViewMode viewMode) {
@@ -1448,7 +1493,7 @@ public sealed class FlipOverlayModule : Module {
     }
 
     private static string BuildCachedStatusMessage(MarketScanResult scanResult) {
-        return $"Showing cached {scanResult.OpportunityMode} results from {scanResult.GeneratedAtUtc.LocalDateTime:yyyy-MM-dd HH:mm:ss}. Press Quick or Full Scan to refresh manually.";
+        return $"Showing cached {scanResult.OpportunityMode} results from {scanResult.GeneratedAtUtc.LocalDateTime:yyyy-MM-dd HH:mm:ss}. Press Full Scan for fresh prices.";
     }
 
     private static bool IsPracticalType(string itemType) {
@@ -1483,16 +1528,16 @@ public sealed class FlipOverlayModule : Module {
 
     private static string GetViewModeLabel(OverlayViewMode viewMode) {
         return viewMode switch {
-            OverlayViewMode.Orders => "Orders",
+            OverlayViewMode.Orders => "Clean Orders",
             OverlayViewMode.CraftBoard => "Craft",
-            OverlayViewMode.Inventory => "Inventory",
-            OverlayViewMode.AutoPlan => "Plan",
+            OverlayViewMode.Inventory => "Sell Filled",
+            OverlayViewMode.AutoPlan => "Buy Plan",
             OverlayViewMode.Snipe => "Snipe",
             OverlayViewMode.Portfolio => "Portfolio",
             OverlayViewMode.Advisor => "Advisor",
             OverlayViewMode.Ledger => "Ledger",
             OverlayViewMode.Watchlist => "Watchlist",
-            _ => "Market"
+            _ => "Daily Scan"
         };
     }
 

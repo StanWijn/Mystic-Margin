@@ -124,13 +124,13 @@ public sealed class Gw2CommerceDataProvider : IMarketDataProvider, IDisposable {
             historySaveResult = await _historyStore.SaveSnapshotAsync(currentRows, recordedAtUtc, queryOptions.HistoryRetentionDays, cancellationToken).ConfigureAwait(false);
         } else {
             if (snapshotPair.CurrentSnapshot.Rows.Count == 0) {
-                throw new InvalidOperationException("Quick scan requires a previous full scan. Run Full Scan first.");
+                throw new InvalidOperationException("Cached scan requires a previous full scan. Run Full Scan first.");
             }
 
             recordedAtUtc = snapshotPair.CurrentSnapshot.RecordedAtUtc ?? DateTimeOffset.UtcNow;
             currentRows = snapshotPair.CurrentSnapshot.Rows.Values.ToList();
             progress?.Report(new ScanProgressUpdate() {
-                StatusMessage = $"Running quick scan from cached prices saved at {recordedAtUtc.LocalDateTime:yyyy-MM-dd HH:mm:ss}..."
+                StatusMessage = $"Rebuilding from cached prices saved at {recordedAtUtc.LocalDateTime:yyyy-MM-dd HH:mm:ss}..."
             });
         }
 
@@ -176,7 +176,7 @@ public sealed class Gw2CommerceDataProvider : IMarketDataProvider, IDisposable {
         progress?.Report(new ScanProgressUpdate() {
             StatusMessage = scanMode == ScanExecutionMode.Full
                 ? $"Full scan finished with {fullUniverse.Count} candidates."
-                : $"Quick scan rebuilt {fullUniverse.Count} candidates from cached market data.",
+                : $"Cached scan rebuilt {fullUniverse.Count} candidates from saved market data.",
             PartialResult = result
         });
 

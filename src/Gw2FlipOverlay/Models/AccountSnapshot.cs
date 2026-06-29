@@ -41,6 +41,10 @@ public sealed class ItemOrderSnapshot {
     public int CurrentBuyUnitPrice { get; set; }
 
     public int CurrentSellUnitPrice { get; set; }
+
+    public DateTimeOffset? CurrentBuyOldestCreatedUtc { get; set; }
+
+    public DateTimeOffset? CurrentSellOldestCreatedUtc { get; set; }
 }
 
 public sealed class CommerceTransactionRecord {

@@ -128,6 +128,9 @@ public sealed class Gw2AccountDataProvider : IAccountDataProvider, IDisposable {
 
             snapshot.CurrentBuyQuantity += buy.Quantity;
             snapshot.CurrentBuyTotalCopper += (long)buy.Price * buy.Quantity;
+            snapshot.CurrentBuyOldestCreatedUtc = !snapshot.CurrentBuyOldestCreatedUtc.HasValue || buy.CreatedAtUtc < snapshot.CurrentBuyOldestCreatedUtc.Value
+                ? buy.CreatedAtUtc
+                : snapshot.CurrentBuyOldestCreatedUtc;
         }
 
         foreach (var sell in sells ?? new List<CommerceTransactionDto>()) {
@@ -142,6 +145,9 @@ public sealed class Gw2AccountDataProvider : IAccountDataProvider, IDisposable {
 
             snapshot.CurrentSellQuantity += sell.Quantity;
             snapshot.CurrentSellTotalCopper += (long)sell.Price * sell.Quantity;
+            snapshot.CurrentSellOldestCreatedUtc = !snapshot.CurrentSellOldestCreatedUtc.HasValue || sell.CreatedAtUtc < snapshot.CurrentSellOldestCreatedUtc.Value
+                ? sell.CreatedAtUtc
+                : snapshot.CurrentSellOldestCreatedUtc;
         }
 
         foreach (var snapshot in orders.Values) {

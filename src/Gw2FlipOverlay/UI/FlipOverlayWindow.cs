@@ -15,7 +15,7 @@ namespace Gw2FlipOverlay.UI;
 public sealed class FlipOverlayWindow : IDisposable {
 
     private const string BuildVersion = "0.1.8-defaults-tuned";
-    private const int MinPanelWidth = 520;
+    private const int MinPanelWidth = 1240;
     private const int MinPanelHeight = 320;
     private const int MinimizedPanelWidth = 280;
     private const int MinimizedPanelHeight = 36;
@@ -42,6 +42,7 @@ public sealed class FlipOverlayWindow : IDisposable {
     private readonly StandardButton _ordersTabButton;
     private readonly StandardButton _craftTabButton;
     private readonly StandardButton _inventoryTabButton;
+    private readonly StandardButton _advancedButton;
     private readonly StandardButton _modeButton;
     private readonly StandardButton _viewButton;
     private readonly StandardButton _presetButton;
@@ -113,6 +114,7 @@ public sealed class FlipOverlayWindow : IDisposable {
     private bool _isHiddenForGameFocus;
     private bool _restorePanelAfterFocus;
     private bool _restoreMiniAfterFocus;
+    private bool _advancedControlsVisible;
     private OverlayViewMode _currentViewMode = OverlayViewMode.Market;
 
     public event Action QuickScanRequested;
@@ -166,7 +168,7 @@ public sealed class FlipOverlayWindow : IDisposable {
             _isDraggingMiniPanel = false;
             _suppressMiniRestoreClick = false;
         };
-        _expandedPanelSize = _panel.Size;
+        _expandedPanelSize = ClampPanelSize(_panel.Size);
 
         _toolbarPanel = new Panel() {
             Parent = _panel,
@@ -247,14 +249,14 @@ public sealed class FlipOverlayWindow : IDisposable {
         _scannerTabButton = new StandardButton() {
             Parent = _panel,
             Location = new Point(16, 12),
-            Size = new Point(92, 26),
-            Text = "Scanner"
+            Size = new Point(104, 26),
+            Text = "Daily Scan"
         };
         _scannerTabButton.Click += (_, __) => ScannerTabRequested?.Invoke();
 
         _portfolioTabButton = new StandardButton() {
             Parent = _panel,
-            Location = new Point(114, 12),
+            Location = new Point(458, 12),
             Size = new Point(92, 26),
             Text = "Portfolio"
         };
@@ -262,7 +264,7 @@ public sealed class FlipOverlayWindow : IDisposable {
 
         _snipeTabButton = new StandardButton() {
             Parent = _panel,
-            Location = new Point(212, 12),
+            Location = new Point(662, 12),
             Size = new Point(92, 26),
             Text = "Snipe"
         };
@@ -270,23 +272,23 @@ public sealed class FlipOverlayWindow : IDisposable {
 
         _planTabButton = new StandardButton() {
             Parent = _panel,
-            Location = new Point(312, 12),
-            Size = new Point(74, 26),
-            Text = "Plan"
+            Location = new Point(128, 12),
+            Size = new Point(92, 26),
+            Text = "Buy Plan"
         };
         _planTabButton.Click += (_, __) => PlanTabRequested?.Invoke();
 
         _ordersTabButton = new StandardButton() {
             Parent = _panel,
-            Location = new Point(394, 12),
-            Size = new Point(82, 26),
-            Text = "Orders"
+            Location = new Point(338, 12),
+            Size = new Point(112, 26),
+            Text = "Clean Orders"
         };
         _ordersTabButton.Click += (_, __) => OrdersTabRequested?.Invoke();
 
         _craftTabButton = new StandardButton() {
             Parent = _panel,
-            Location = new Point(402, 12),
+            Location = new Point(762, 12),
             Size = new Point(74, 26),
             Text = "Craft"
         };
@@ -294,11 +296,26 @@ public sealed class FlipOverlayWindow : IDisposable {
 
         _inventoryTabButton = new StandardButton() {
             Parent = _panel,
-            Location = new Point(484, 12),
-            Size = new Point(92, 26),
-            Text = "Inventory"
+            Location = new Point(226, 12),
+            Size = new Point(104, 26),
+            Text = "Sell Filled"
         };
         _inventoryTabButton.Click += (_, __) => InventoryTabRequested?.Invoke();
+
+        _advancedButton = new StandardButton() {
+            Parent = _panel,
+            Location = new Point(558, 12),
+            Size = new Point(96, 26),
+            Text = "More"
+        };
+        _advancedButton.Click += (_, __) => {
+            _advancedControlsVisible = !_advancedControlsVisible;
+            ApplyChromeForView(_currentViewMode);
+            ApplyLayout();
+            SetStatus(_advancedControlsVisible
+                ? "More actions and filters shown."
+                : "Primary workflow shown: scan, plan buys, sell filled stock, clean orders, and check portfolio.");
+        };
 
         _modeButton = new StandardButton() {
             Parent = _panel,
@@ -456,7 +473,7 @@ public sealed class FlipOverlayWindow : IDisposable {
         _quickScanButton = new StandardButton() {
             Parent = _panel,
             Size = new Point(88, 32),
-            Text = "Quick"
+            Text = "Cached"
         };
         _quickScanButton.Click += (_, __) => QuickScanRequested?.Invoke();
 
@@ -557,7 +574,7 @@ public sealed class FlipOverlayWindow : IDisposable {
             Parent = _detailPanel,
             Location = new Point(12, 62),
             Size = new Point(330, 20),
-            Text = "Quick TP workflow and market stats",
+            Text = "Daily TP workflow and market stats",
             ShowShadow = true,
             TextColor = Color.LightGray
         };
@@ -686,6 +703,7 @@ public sealed class FlipOverlayWindow : IDisposable {
         _miniPanel.Visible = false;
         _isMinimized = false;
         _isDraggingMiniPanel = false;
+        _expandedPanelSize = ClampPanelSize(_expandedPanelSize);
         _panel.Location = ClampLocationToScreen(_panel.Location, _expandedPanelSize.X, _expandedPanelSize.Y);
         _panel.Show();
         SetContentVisibility(true);
@@ -763,7 +781,7 @@ public sealed class FlipOverlayWindow : IDisposable {
     public void SetBusy(bool isBusy) {
         _quickScanButton.Enabled = !isBusy;
         _fullScanButton.Enabled = !isBusy;
-        _quickScanButton.Text = isBusy ? "Scanning" : "Quick";
+        _quickScanButton.Text = isBusy ? "Scanning" : "Cached";
         _fullScanButton.Text = isBusy ? "Please..." : "Full";
     }
 
@@ -800,7 +818,7 @@ public sealed class FlipOverlayWindow : IDisposable {
 
         if (scanResult.Candidates.Count == 0) {
             CreateEmptyState(viewMode == OverlayViewMode.Snipe
-                ? "No snipe deals matched yet. Run Quick or Full after cycling through Flip and Value modes, or loosen ROI/depth/capital filters."
+                ? "No snipe deals matched yet. Run Full after cycling through Flip and Value modes, or loosen ROI/depth/capital filters."
                 : "No candidates matched the current filters. Try lowering min profit, depth, or practical filtering.");
         }
 
@@ -977,7 +995,7 @@ public sealed class FlipOverlayWindow : IDisposable {
 
     public void UpdateInteraction() {
         if (!_isMinimized && _panel.Size != _expandedPanelSize) {
-            _expandedPanelSize = _panel.Size;
+            _expandedPanelSize = ClampPanelSize(_panel.Size);
             ApplyLayout();
 
             if (_lastRenderedResult != null) {
@@ -2078,7 +2096,7 @@ public sealed class FlipOverlayWindow : IDisposable {
 
         if (!hasSelection) {
             _detailTitleLabel.Text = "Select a row";
-            _detailSubtitleLabel.Text = "Quick TP workflow and market stats";
+            _detailSubtitleLabel.Text = "Daily TP workflow and market stats";
             _detailStatsLabel.Text = "The right panel will show fast-flip stats, turnover clues, and quick actions for the selected item.";
             _detailTrendLabel.Text = "Trend data appears after at least one saved market snapshot.";
             _watchButton.Text = "Watch";
@@ -2176,28 +2194,40 @@ public sealed class FlipOverlayWindow : IDisposable {
         rightEdge = _fullScanButton.Left - 8;
         _quickScanButton.Location = new Point(rightEdge - _quickScanButton.Width, 12);
         _scannerTabButton.Location = new Point(16, 12);
-        _portfolioTabButton.Location = new Point(_scannerTabButton.Right + 8, 12);
-        _snipeTabButton.Location = new Point(_portfolioTabButton.Right + 8, 12);
-        _planTabButton.Location = new Point(_snipeTabButton.Right + 8, 12);
-        _ordersTabButton.Location = new Point(_planTabButton.Right + 8, 12);
-        _craftTabButton.Location = new Point(_ordersTabButton.Right + 8, 12);
-        _inventoryTabButton.Location = new Point(_craftTabButton.Right + 8, 12);
-        _subtitleLabel.Location = new Point(_inventoryTabButton.Right + 14, 12);
-        _summaryLabel.Location = new Point(_inventoryTabButton.Right + 14, 30);
+        _planTabButton.Location = new Point(_scannerTabButton.Right + 8, 12);
+        _inventoryTabButton.Location = new Point(_planTabButton.Right + 8, 12);
+        _ordersTabButton.Location = new Point(_inventoryTabButton.Right + 8, 12);
+        _portfolioTabButton.Location = new Point(_ordersTabButton.Right + 8, 12);
+        _advancedButton.Location = new Point(_portfolioTabButton.Right + 8, 12);
+        _snipeTabButton.Location = new Point(_advancedButton.Right + 8, 12);
+        _craftTabButton.Location = new Point(_snipeTabButton.Right + 8, 12);
+        var navRight = _advancedControlsVisible ? _craftTabButton.Right : _advancedButton.Right;
+        _subtitleLabel.Location = new Point(navRight + 14, 12);
+        _summaryLabel.Location = new Point(navRight + 14, 30);
         _subtitleLabel.Size = new Point(Math.Max(140, _quickScanButton.Left - _subtitleLabel.Left - 20), 20);
         _summaryLabel.Size = new Point(Math.Max(160, _quickScanButton.Left - _summaryLabel.Left - 20), 18);
         _toolbarPanel.Location = new Point(14, 44);
         _toolbarPanel.Size = new Point(Math.Max(240, Math.Min(panelWidth - 28, _quickScanButton.Left - 22)), 38);
-        _filterPanel.Location = new Point(14, 78);
-        _filterPanel.Size = new Point(Math.Max(240, Math.Min(panelWidth - 28, _autoPlanButton.Right + 18)), 38);
+
+        if (_advancedControlsVisible) {
+            _filterPanel.Location = new Point(14, 78);
+            _autoQuantityButton.Location = new Point(976, 82);
+            _autoPlanButton.Location = new Point(1094, 82);
+            _filterPanel.Size = new Point(Math.Max(240, Math.Min(panelWidth - 28, _autoPlanButton.Right + 18)), 38);
+        } else {
+            _filterPanel.Location = new Point(14, 44);
+            _autoQuantityButton.Location = new Point(16, 48);
+            _autoPlanButton.Location = new Point(_autoQuantityButton.Right + 8, 48);
+            _filterPanel.Size = new Point(Math.Max(240, Math.Min(panelWidth - 28, _autoPlanButton.Right + 18)), 38);
+        }
         _footerPanel.Location = new Point(14, panelHeight - 68);
         _footerPanel.Size = new Point(Math.Max(240, panelWidth - 28), 46);
 
         var contentBottom = panelHeight - 70;
-        var detailWidth = isPortfolioView ? 0 : Math.Max(250, Math.Min(390, (int)(panelWidth * 0.32f)));
-        var detailTop = 168;
+        var detailWidth = Math.Max(250, Math.Min(330, (int)(panelWidth * 0.28f)));
+        var detailTop = _advancedControlsVisible ? 168 : 134;
         var detailHeight = Math.Max(220, contentBottom - detailTop);
-        var detailLeft = isPortfolioView ? panelWidth - 12 : panelWidth - detailWidth - 26;
+        var detailLeft = panelWidth - detailWidth - 26;
         _detailPanel.Location = new Point(detailLeft, detailTop);
         _detailPanel.Size = new Point(detailWidth, detailHeight);
 
@@ -2205,11 +2235,9 @@ public sealed class FlipOverlayWindow : IDisposable {
         _detailScrollbar.Size = new Point(16, Math.Max(120, detailHeight - 42));
 
         var listLeft = 16;
-        var listTop = isPortfolioView ? 166 : 194;
+        var listTop = isPortfolioView ? 166 : (_advancedControlsVisible ? 194 : 160);
         var listHeight = Math.Max(120, contentBottom - listTop);
-        var listWidth = isPortfolioView
-            ? Math.Max(260, panelWidth - listLeft - 28)
-            : Math.Max(260, detailLeft - listLeft - 24);
+        var listWidth = Math.Max(260, detailLeft - listLeft - 24);
         _listPanel.Location = new Point(listLeft, listTop);
         _listPanel.Size = new Point(listWidth, listHeight);
         _listScrollbar.Location = new Point(listLeft + listWidth - 16, listTop + 4);
@@ -2225,12 +2253,29 @@ public sealed class FlipOverlayWindow : IDisposable {
         _openWikiButton.Location = new Point(Math.Max(120, detailWidth - 108), 94);
         _watchButton.Location = new Point(Math.Max(12, detailWidth - 108), 128);
 
-        _statusLabel.Location = new Point(16, 116);
+        var statusTop = _advancedControlsVisible ? 116 : 86;
+        var stripTop = _advancedControlsVisible ? 138 : 108;
+        var headerTop = _advancedControlsVisible ? 168 : 134;
+        _statusLabel.Location = new Point(16, statusTop);
         _statusLabel.Size = new Point(panelWidth - 28, 24);
-        _portfolioStripLabel.Location = new Point(16, 138);
+        _portfolioStripLabel.Location = new Point(16, stripTop);
         _portfolioStripLabel.Size = new Point(panelWidth - 28, 20);
+        SetStaticHeaderY(headerTop);
         _updatedLabel.Location = new Point(28, panelHeight - 62);
         _updatedLabel.Size = new Point(panelWidth - 92, 38);
+    }
+
+    private void SetStaticHeaderY(int y) {
+        _rankHeaderLabel.Location = new Point(_rankHeaderLabel.Left, y);
+        _itemHeaderLabel.Location = new Point(_itemHeaderLabel.Left, y);
+        _costHeaderLabel.Location = new Point(_costHeaderLabel.Left, y);
+        _sellHeaderLabel.Location = new Point(_sellHeaderLabel.Left, y);
+        _profitHeaderLabel.Location = new Point(_profitHeaderLabel.Left, y);
+        _roiHeaderLabel.Location = new Point(_roiHeaderLabel.Left, y);
+        _depthHeaderLabel.Location = new Point(_depthHeaderLabel.Left, y);
+        _pressHeaderLabel.Location = new Point(_pressHeaderLabel.Left, y);
+        _turnHeaderLabel.Location = new Point(_turnHeaderLabel.Left, y);
+        _scoreHeaderLabel.Location = new Point(_scoreHeaderLabel.Left, y);
     }
 
     private void ApplyMiniLayout() {
@@ -2256,6 +2301,7 @@ public sealed class FlipOverlayWindow : IDisposable {
         _miniPanel.Visible = false;
         _isDraggingMiniPanel = false;
         _suppressMiniRestoreClick = false;
+        _expandedPanelSize = ClampPanelSize(_expandedPanelSize);
         _panel.Location = ClampLocationToScreen(_miniPanel.Location, _expandedPanelSize.X, _expandedPanelSize.Y);
         _panel.Size = _expandedPanelSize;
         _panel.Show();
@@ -2275,6 +2321,7 @@ public sealed class FlipOverlayWindow : IDisposable {
         _ordersTabButton.Visible = isVisible;
         _craftTabButton.Visible = isVisible;
         _inventoryTabButton.Visible = isVisible;
+        _advancedButton.Visible = isVisible;
         _subtitleLabel.Visible = isVisible;
         _summaryLabel.Visible = isVisible;
         _modeButton.Visible = isVisible;
@@ -2561,38 +2608,42 @@ public sealed class FlipOverlayWindow : IDisposable {
         var isPortfolio = viewMode == OverlayViewMode.Portfolio;
         var isSnipe = viewMode == OverlayViewMode.Snipe;
         var isPlan = viewMode == OverlayViewMode.AutoPlan;
-        _scannerTabButton.Enabled = isPortfolio || isSnipe || IsMoneyActionView(viewMode);
+        var showAdvanced = _advancedControlsVisible && !isPortfolio;
+        _scannerTabButton.Enabled = viewMode != OverlayViewMode.Market;
         _portfolioTabButton.Enabled = !isPortfolio;
         _snipeTabButton.Enabled = !isSnipe;
         _planTabButton.Enabled = !isPlan;
         _ordersTabButton.Enabled = viewMode != OverlayViewMode.Orders;
         _craftTabButton.Enabled = viewMode != OverlayViewMode.CraftBoard;
         _inventoryTabButton.Enabled = viewMode != OverlayViewMode.Inventory;
+        _advancedButton.Text = _advancedControlsVisible ? "Less" : "More";
 
-        _toolbarPanel.Visible = !isPortfolio;
+        _toolbarPanel.Visible = showAdvanced;
         _filterPanel.Visible = !isPortfolio;
-        _modeButton.Visible = !isPortfolio;
-        _viewButton.Visible = !isPortfolio;
-        _presetButton.Visible = !isPortfolio;
-        _savePresetButton.Visible = !isPortfolio;
-        _sortButton.Visible = !isPortfolio;
-        _rowsButton.Visible = !isPortfolio;
-        _capButton.Visible = !isPortfolio;
-        _depthButton.Visible = !isPortfolio;
-        _discountButton.Visible = !isPortfolio;
-        _roiButton.Visible = !isPortfolio;
-        _ownedButton.Visible = !isPortfolio;
-        _openSellButton.Visible = !isPortfolio;
-        _volatilityButton.Visible = !isPortfolio;
+        _modeButton.Visible = showAdvanced;
+        _viewButton.Visible = showAdvanced;
+        _presetButton.Visible = showAdvanced;
+        _savePresetButton.Visible = showAdvanced;
+        _sortButton.Visible = showAdvanced;
+        _rowsButton.Visible = showAdvanced;
+        _capButton.Visible = showAdvanced;
+        _depthButton.Visible = showAdvanced;
+        _discountButton.Visible = showAdvanced;
+        _roiButton.Visible = showAdvanced;
+        _ownedButton.Visible = showAdvanced;
+        _openSellButton.Visible = showAdvanced;
+        _volatilityButton.Visible = showAdvanced;
         _autoQuantityButton.Visible = !isPortfolio;
         _autoPlanButton.Visible = !isPortfolio;
-        _profitDownButton.Visible = !isPortfolio;
-        _profitLabel.Visible = !isPortfolio;
-        _profitUpButton.Visible = !isPortfolio;
-        _practicalButton.Visible = !isPortfolio;
+        _profitDownButton.Visible = showAdvanced;
+        _profitLabel.Visible = showAdvanced;
+        _profitUpButton.Visible = showAdvanced;
+        _practicalButton.Visible = showAdvanced;
         _portfolioStripLabel.Visible = !isPortfolio;
-        _detailPanel.Visible = !isPortfolio;
-        _detailScrollbar.Visible = !isPortfolio;
+        _detailPanel.Visible = true;
+        _detailScrollbar.Visible = true;
+        _snipeTabButton.Visible = _advancedControlsVisible && !isPortfolio;
+        _craftTabButton.Visible = _advancedControlsVisible && !isPortfolio;
 
         var showStaticHeaders = !isPortfolio;
         _rankHeaderLabel.Visible = showStaticHeaders;
@@ -2751,19 +2802,19 @@ public sealed class FlipOverlayWindow : IDisposable {
             case OverlayViewMode.Snipe:
                 return "Snipe";
             case OverlayViewMode.AutoPlan:
-                return "Plan";
+                return "Buy Plan";
             case OverlayViewMode.Orders:
-                return "Orders";
+                return "Clean Orders";
             case OverlayViewMode.CraftBoard:
                 return "Craft";
             case OverlayViewMode.Inventory:
-                return "Inventory";
+                return "Sell Filled";
             default:
-                return "Market";
+                return "Daily Scan";
         }
     }
 
-    private static string BuildSummaryText(FlipQueryOptions queryOptions, OverlayViewMode viewMode, string presetName) {
+    private string BuildSummaryText(FlipQueryOptions queryOptions, OverlayViewMode viewMode, string presetName) {
         var preset = string.IsNullOrWhiteSpace(presetName) ? "Custom" : presetName;
         if (viewMode == OverlayViewMode.Advisor) {
             return $"Advisor board active | Preset {preset} | Mode {GetModeLabel(queryOptions.OpportunityMode)} | Concrete picks for now, later, and exits";
@@ -2778,14 +2829,16 @@ public sealed class FlipOverlayWindow : IDisposable {
         }
 
         if (viewMode == OverlayViewMode.AutoPlan) {
-            return $"Plan board active | Top-10 staged buy orders | Quantity x{queryOptions.AutoFlipQuantity:N0} | Manual Trading Post workflow";
+            return $"Buy plan active | Top-10 staged buy orders | Quantity x{queryOptions.AutoFlipQuantity:N0} | Manual Trading Post workflow";
         }
 
         if (IsMoneyActionView(viewMode)) {
-            return $"{GetViewModeLabel(viewMode)} board active | Short-cycle actions for orders, crafting, and inventory exits";
+            return $"{GetViewModeLabel(viewMode)} active | Short-cycle actions for stale orders, fills, crafting, and exits";
         }
 
-        return $"{GetViewModeLabel(viewMode)} desk active | Preset {preset} | ROI {FormatPercentFilter(queryOptions.MinimumRoiPercent)} | Depth {FormatDepth(queryOptions.MinimumMarketDepth)} | Exposure {FormatQuantityFilter(queryOptions.MaxOwnedQuantity)}";
+        return _advancedControlsVisible
+            ? $"{GetViewModeLabel(viewMode)} desk active | Preset {preset} | ROI {FormatPercentFilter(queryOptions.MinimumRoiPercent)} | Depth {FormatDepth(queryOptions.MinimumMarketDepth)} | Exposure {FormatQuantityFilter(queryOptions.MaxOwnedQuantity)}"
+            : $"Daily defaults active | Preset {preset} | Full Scan, Plan Top 10, sell fills, clean stale orders";
     }
 
     private static string BuildCandidateRowLabel(FlipCandidate candidate, bool isWatched) {
@@ -3173,10 +3226,10 @@ public sealed class FlipOverlayWindow : IDisposable {
 
     private static string GetMoneyActionEmptyText(OverlayViewMode viewMode) {
         return viewMode switch {
-            OverlayViewMode.AutoPlan => "No auto flip plan yet. Open a market, watchlist, or snipe board, then press Plan Top 10.",
-            OverlayViewMode.Orders => "No order actions yet. Add an API key with tradingpost scope and run a scan to find undercut sells and stale buy orders.",
+            OverlayViewMode.AutoPlan => "No buy plan yet. Open Daily Scan, run Full, then press Plan Top 10.",
+            OverlayViewMode.Orders => "No order cleanup actions yet. Add an API key with tradingpost scope and run a scan to find undercut sells and stale buy orders.",
             OverlayViewMode.CraftBoard => "No short-cycle craft actions yet. Run Craft or Cooldown scans to populate profitable craft actions.",
-            OverlayViewMode.Inventory => "No inventory exit actions yet. Add inventory scopes and run scans to classify sell, hold, and craft-from-stock options.",
+            OverlayViewMode.Inventory => "No filled inventory exits yet. Add inventory scopes and run scans to classify sell, hold, and list options.",
             _ => "No actions available yet."
         };
     }
@@ -3619,6 +3672,12 @@ public sealed class FlipOverlayWindow : IDisposable {
         return new Point(
             Math.Max(0, Math.Min(maxX, candidateLocation.X)),
             Math.Max(0, Math.Min(maxY, candidateLocation.Y)));
+    }
+
+    private static Point ClampPanelSize(Point size) {
+        return new Point(
+            Math.Max(MinPanelWidth, size.X),
+            Math.Max(MinPanelHeight, size.Y));
     }
 
     private enum PortfolioGrowthPeriod {

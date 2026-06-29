@@ -39,7 +39,7 @@ To add one:
 3. Copy the generated key.
 4. In Blish HUD, open `Settings` > `Modules` > `Mystic Margin`.
 5. Paste the key into `GW2 API key`.
-6. Run a `Quick` or `Full` scan in the overlay.
+6. Run `Full` for fresh Trading Post prices, or `Cached` to rebuild from your last full scan.
 
 Your API key is stored by Blish HUD in its local settings. Do not share your key publicly.
 
@@ -73,7 +73,8 @@ Your API key is stored by Blish HUD in its local settings. Do not share your key
   - minimum depth
   - minimum profit threshold
   - practical-item filtering
-- Account-aware boards for portfolio, ledger, open orders, inventory exits, and craft actions when a GW2 API key is configured
+- Account-aware boards for portfolio, ledger, stale order cleanup, filled-inventory exits, and craft actions when a GW2 API key is configured
+- A simplified daily workflow: `Daily Scan`, `Buy Plan`, `Sell Filled`, and `Clean Orders`
 - A manual `Plan Top 10` workflow that stages the best current candidates into a visible buy-order plan
 - A larger local candidate universe cache so filter/sort changes feel instant after a scan finishes
 - A local compressed price-history database that stores every public market scan over time
